@@ -1,5 +1,5 @@
+from distutils.command.upload import upload
 import Can_Simulation as cs 
-from Can_Trace import Trace_App
 import Upload_Dbc as ud
 import requests
 import json
@@ -8,19 +8,23 @@ import websocket
 import _thread
 
 
-boxurl_pure = "192.168.1.163"  # switch to "?.1.0.0" when the code run in zdbox 
+boxurl_pure = "192.168.1.1"  # switch to local url when the code run in zdbox 
 boxurl = "http://" + boxurl_pure + ":8010"  
-sim_dbc_list = ['E3_1_1_MEB_ACANFD_KMatrix_V10.07.04F_20201102_MH.dbc', 'siggen_lite_standard.json']
-trace_dbc_list = ['siggen_lite_standard.json']
+sim_dbc_list = ['demosim.dbc', 'demosim.json']
+trace_dbc_list = ['demotrace.json']
 
 reqID = 1
 switch1_status = 0
 speed_status = 0
 
-msg_ab = cs.Simulation(boxurl_pure, "airbag", "can1", "E3_1_1_MEB_ACANFD_KMatrix_V10.07.04F_20201102_MH.json" )
-msg_speed = cs.Simulation(boxurl_pure, "velocity", "can2", "E3_1_1_MEB_ACANFD_KMatrix_V10.07.04F_20201102_MH.json" )
-msg_led = cs.Simulation(boxurl_pure, "led", "can4", "siggen_lite_standard.json" )
+msg_ab = cs.Simulation(boxurl_pure, "airbag", "can1", "demosim.json" )
+msg_speed = cs.Simulation(boxurl_pure, "velocity", "can2", "demosim.json" )
+msg_led = cs.Simulation(boxurl_pure, "led", "can4", "demosim.json" )
 
+
+def upload_dbc():
+    ud.upload_sim_dbc(boxurl_pure, sim_dbc_list)
+    ud.upload_trace_dbc(boxurl_pure, trace_dbc_list)
 
 
 def msg_start():
@@ -42,9 +46,14 @@ def msg_start():
     switch1_off()
 
 def simulation_stop():  #stop simulation 
-    cmdurl = "http://" + boxurl_pure + "/api/standard-simulation/clearall"
-    res = requests.delete(cmdurl)
-    return res.json
+    try:
+        cmdurl = "http://" + boxurl_pure + "/api/standard-simulation/clearall"
+        res = requests.delete(cmdurl)            
+    except requests.exceptions.RequestException as e:
+        raise SystemExit(e) 
+    finally:
+        return res
+
 
 def speed_change(speed): 
     msg_speed.message_change_phys("253", "ESP_v_Signal", speed)
@@ -53,7 +62,7 @@ def speed_change(speed):
 def switch1_off(): 
     msg_ab.message_change_raw("64", "AB_Gurtschloss_FA_ext", "2")
 
-    time.sleep(0.5)# sleep 0.5s
+    time.sleep(0.5)
     msg_ab.message_change_raw("1349", "AB_Belegung_VF_ext", "2")
     msg_ab.message_change_raw("64", "AB_Belegung_VF", "2")
 
@@ -66,7 +75,7 @@ def switch1_on():
     msg_ab.message_change_raw("1349", "AB_Belegung_VF_ext", "3")
     msg_ab.message_change_raw("1349", "AB_Belegung_VF", "3")
 
-    time.sleep(0.5)# sleep 0.5s
+    time.sleep(0.5)
 
     msg_ab.message_change_raw("64", "AB_Gurtschloss_FA_ext", "3")
 
@@ -100,27 +109,6 @@ def on_message(ws, message):
     except requests.exceptions.RequestException as e:
         raise SystemExit(e)
         
-        # if "data" in new_message:
-        #     if len(new_message["data"]) == 1:
-        #         if "parsed" in new_message["data"][0]:
-        #             if "name" in new_message["data"][0]["parsed"]:
-        #                 if new_message["data"][0]["parsed"]["name"] == "POTI_STATUS":
-        # if abs(int(new_message["data"][0]["parsed"]["signals"][1]["raw"]) - speed_status) > 5 :
-        #     speed_status = int(new_message["data"][0]["parsed"]["signals"][1]["raw"])
-        #     # print(speed_status)
-        #     msg_speed.message_change_phys("253", "ESP_v_Signal", speed)
-    
-
-    # if new_message["data"][0]["parsed"]["name"] == "SWITCH_STATUS":
-        
-    #     # print(new_message["data"][0]["parsed"]["signals"][1]["raw"])
-    #     if int(new_message["data"][0]["parsed"]["signals"][1]["raw"]) != switch1_status:
-    #         switch1_status = int(new_message["data"][0]["parsed"]["signals"][1]["raw"])
-    #         if switch1_status :
-    #             switch1_on()
-                
-    #         else:
-    #             switch1_off()
     def on_error(ws, error):
       print(error)
 
@@ -128,7 +116,7 @@ def on_message(ws, message):
         print("### closed ###")
 
     def on_open(ws):
-        requests.put("http://" + boxurl_pure + "/api/trace-service/codec/default/dbc/can", data={"path":"siggen_lite_standard.json"})
+        requests.put("http://" + boxurl_pure + "/api/trace-service/codec/default/dbc/can", data={"path":"demotrace.json"})
         time.sleep(1)
         ws.send('{"opcode":"addChannel","requestId":"100","data":{"channel":"ipdu.can.can4.*","codec": ["default-can"]} }')
         ws.send('{"opcode":"setRule","requestId":"101","data":{"rule":"()=>true"} }')
@@ -145,7 +133,7 @@ def on_message(ws, message):
 
 
 def main():
-
+    upload_dbc()
     simulation_stop()
     time.sleep(3)   
     msg_start()
@@ -154,11 +142,6 @@ def main():
                               on_message=on_message,
                               on_error=on_error,
                               on_close=on_close)
-    # ws = Trace_App( "ws://" + boxurl_pure + ":6001/",
-    #                           channel = "ipdu.can.can4.*",
-    #                           on_message=on_message,
-    #                           )
-    # ws.on_open()
     ws.run_forever()
 
 if __name__ == "__main__":
